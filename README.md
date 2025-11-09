@@ -4,9 +4,7 @@
 gradientShort is a lightweight SwiftUI playground app that randomizes two colors from a curated palette and renders a full-screen diagonal gradient, offering an instant way to explore harmonious color blends for wallpapers, prototypes, or inspiration.
 
 ## Screenshots
-| Light Mode | Dark Mode |
-| --- | --- |
-| ![Light Preview](Docs/Images/screenshot-light.png) | ![Dark Preview](Docs/Images/screenshot-dark.png) |
+🚧 This section is under construction—we'll add screenshots here once they're ready.
 
 ## Features
 - Randomizes paired colors from a built-in palette covering the standard iOS accent spectrum.
