@@ -8,31 +8,22 @@
 import SwiftUI
 import AudioToolbox
 
-let colors = [
-    Color.red,
-    Color.orange,
-    Color.yellow,
-    Color.green,
-    Color.blue,
-    Color.purple,
-    Color.mint,
-    Color.pink,
-    Color.indigo,
-    Color.cyan
-]
-
 struct ContentView: View {
-    @State private var color1: Color = colors.randomElement() ?? .red
-    @State private var color2: Color = colors.randomElement() ?? .blue
-    @State private var elapsedSeconds = 0
+    @State private var remainingSeconds = 0
     @State private var timer: Timer?
     @State private var isRunning = false
-    @State private var selectedMinutes = 0
-    @State private var selectedSeconds = 0
+    @State private var selectedInitialMinutes = 0
+    @State private var selectedInitialSeconds = 0
+    @State private var selectedWorkMinutes = 0
+    @State private var selectedWorkSeconds = 0
+    @State private var selectedRestMinutes = 0
+    @State private var selectedRestSeconds = 0
+    @State private var currentPhase: TimerPhase = .initial
+    @State private var sequenceCompleted = false
     
     var body: some View {
         ZStack {
-            LinearGradient(colors: [color1, color2], startPoint: .topLeading, endPoint: .bottomTrailing)
+            LinearGradient(colors: gradientColors, startPoint: .topLeading, endPoint: .bottomTrailing)
                 .ignoresSafeArea()
             
             VStack(spacing: 20) {
@@ -61,25 +52,54 @@ struct ContentView: View {
                 }
                 .padding(.horizontal, 24)
                 
-                HStack(alignment: .center, spacing: 32) {
-                    Text("Work")
-                        .font(.headline)
-                        .foregroundStyle(.white.opacity(0.9))
-                    TimeWheel(label: "min", selection: $selectedMinutes)
-                    TimeWheel(label: "sec", selection: $selectedSeconds)
+                VStack(spacing: 12) {
+                    TimeWheelRow(title: "Initial", minutes: $selectedInitialMinutes, seconds: $selectedInitialSeconds)
+                    TimeWheelRow(title: "Work", minutes: $selectedWorkMinutes, seconds: $selectedWorkSeconds)
+                    TimeWheelRow(title: "Rest", minutes: $selectedRestMinutes, seconds: $selectedRestSeconds)
                 }
-                .frame(height: 140)
+            }
+            .onChange(of: selectedInitialMinutes, initial: false) { _, _ in
+                syncRemaining(with: .initial)
+            }
+            .onChange(of: selectedInitialSeconds, initial: false) { _, _ in
+                syncRemaining(with: .initial)
+            }
+            .onChange(of: selectedWorkMinutes, initial: false) { _, _ in
+                syncRemaining(with: .work)
+            }
+            .onChange(of: selectedWorkSeconds, initial: false) { _, _ in
+                syncRemaining(with: .work)
+            }
+            .onChange(of: selectedRestMinutes, initial: false) { _, _ in
+                syncRemaining(with: .rest)
+            }
+            .onChange(of: selectedRestSeconds, initial: false) { _, _ in
+                syncRemaining(with: .rest)
             }
         }
         .onDisappear {
             stopTimer()
         }
+        .onAppear {
+            remainingSeconds = seconds(for: currentPhase)
+        }
     }
     
     private var formattedTime: String {
-        let minutes = elapsedSeconds / 60
-        let seconds = elapsedSeconds % 60
+        let minutes = max(remainingSeconds, 0) / 60
+        let seconds = max(remainingSeconds, 0) % 60
         return String(format: "%02d:%02d", minutes, seconds)
+    }
+    
+    private var gradientColors: [Color] {
+        switch currentPhase {
+        case .initial:
+            return [Color.blue.opacity(0.6), Color.blue]
+        case .work:
+            return [Color.green.opacity(0.6), Color.green]
+        case .rest:
+            return [Color.red.opacity(0.6), Color.red]
+        }
     }
     
     private func toggleTimer() {
@@ -92,19 +112,30 @@ struct ContentView: View {
     
     private func startTimer() {
         guard !isRunning else { return }
+
+        if sequenceCompleted {
+            prepareForNewSequence(resetCompletion: true)
+        }
+        
+        if remainingSeconds == 0 {
+            advancePhaseOrFinish()
+            if sequenceCompleted || remainingSeconds == 0 {
+                return
+            }
+        }
+        
         isRunning = true
         playBeep()
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in
-            elapsedSeconds += 1
-            if elapsedSeconds.isMultiple(of: 5) {
-                playDoubleBeep()
-            } else {
-                playBeep()
-            }
+            timerTick()
         }
     }
     
     private func stopTimer() {
+        pauseTimer()
+    }
+    
+    private func pauseTimer() {
         timer?.invalidate()
         timer = nil
         isRunning = false
@@ -112,7 +143,7 @@ struct ContentView: View {
     
     private func resetTimer() {
         guard !isRunning else { return }
-        elapsedSeconds = 0
+        prepareForNewSequence(resetCompletion: true)
     }
     
     private func playBeep(after delay: TimeInterval = 0) {
@@ -129,7 +160,83 @@ struct ContentView: View {
     
     private func playDoubleBeep() {
         playBeep()
-        playBeep(after: 0.2)
+        playBeep(after: 0.1)
+    }
+    
+    private func syncRemaining(with phase: TimerPhase) {
+        guard !isRunning else { return }
+        guard currentPhase == phase || (sequenceCompleted && phase == .initial) else { return }
+        remainingSeconds = seconds(for: currentPhase)
+    }
+    
+    private func seconds(for phase: TimerPhase) -> Int {
+        switch phase {
+        case .initial:
+            return (selectedInitialMinutes * 60) + selectedInitialSeconds
+        case .work:
+            return (selectedWorkMinutes * 60) + selectedWorkSeconds
+        case .rest:
+            return (selectedRestMinutes * 60) + selectedRestSeconds
+        }
+    }
+    
+    private func timerTick() {
+        guard remainingSeconds > 0 else {
+            advancePhaseOrFinish()
+            return
+        }
+        
+        remainingSeconds -= 1
+        playBeep()
+        
+        if remainingSeconds == 0 {
+            advancePhaseOrFinish()
+        }
+    }
+    
+    private func advancePhaseOrFinish() {
+        if let next = currentPhase.nextPhase {
+            currentPhase = next
+            remainingSeconds = seconds(for: currentPhase)
+            if remainingSeconds > 0 {
+                playDoubleBeep()
+            }
+            if remainingSeconds == 0 {
+                advancePhaseOrFinish()
+            }
+        } else {
+            finishSequence()
+        }
+    }
+    
+    private func finishSequence() {
+        pauseTimer()
+        sequenceCompleted = true
+        currentPhase = .initial
+        remainingSeconds = seconds(for: .initial)
+    }
+    
+    private func prepareForNewSequence(resetCompletion: Bool = false) {
+        currentPhase = .initial
+        remainingSeconds = seconds(for: .initial)
+        if resetCompletion {
+            sequenceCompleted = false
+        }
+    }
+}
+
+private enum TimerPhase {
+    case initial, work, rest
+    
+    var nextPhase: TimerPhase? {
+        switch self {
+        case .initial:
+            return .work
+        case .work:
+            return .rest
+        case .rest:
+            return nil
+        }
     }
 }
 
@@ -138,7 +245,7 @@ private struct TimeWheel: View {
     @Binding var selection: Int
     
     var body: some View {
-        VStack(spacing: 4) {
+        VStack(spacing: 2) {
             Picker(label, selection: $selection) {
                 ForEach(0..<60, id: \.self) { value in
                     Text("\(value)")
@@ -147,14 +254,31 @@ private struct TimeWheel: View {
             }
             .pickerStyle(.wheel)
             .labelsHidden()
-            .frame(width: 80, height: 110)
+            .frame(width: 70, height: 80)
             .clipped()
             
             Text(label.uppercased())
-                .font(.caption2)
+                .font(.caption)
                 .fontWeight(.semibold)
                 .foregroundStyle(.white.opacity(0.9))
         }
+    }
+}
+
+private struct TimeWheelRow: View {
+    let title: String
+    @Binding var minutes: Int
+    @Binding var seconds: Int
+    
+    var body: some View {
+        HStack(alignment: .center, spacing: 24) {
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.white.opacity(0.85))
+            TimeWheel(label: "min", selection: $minutes)
+            TimeWheel(label: "sec", selection: $seconds)
+        }
+        .frame(height: 110)
     }
 }
 
