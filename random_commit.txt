@@ -1,0 +1,6 @@
+some message
+second line added
+Changing the third line.
+
+
+Another paragraph added to the file.
