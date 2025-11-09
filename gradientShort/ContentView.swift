@@ -12,6 +12,7 @@ struct ContentView: View {
     @State private var remainingSeconds = 0
     @State private var timer: Timer?
     @State private var isRunning = false
+    @State private var selectedRounds = 1
     @State private var selectedInitialMinutes = 0
     @State private var selectedInitialSeconds = 0
     @State private var selectedWorkMinutes = 0
@@ -20,6 +21,7 @@ struct ContentView: View {
     @State private var selectedRestSeconds = 0
     @State private var currentPhase: TimerPhase = .initial
     @State private var sequenceCompleted = false
+    @State private var currentRound = 1
     
     var body: some View {
         ZStack {
@@ -30,6 +32,11 @@ struct ContentView: View {
                 Text(formattedTime)
                     .font(.system(size: 64, weight: .semibold, design: .monospaced))
                     .foregroundStyle(.white)
+                
+                Text(currentRoundText)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white.opacity(0.85))
+                    .padding(.top, -8)
                 
                 HStack(spacing: 16) {
                     Button("Reset") {
@@ -52,7 +59,15 @@ struct ContentView: View {
                 }
                 .padding(.horizontal, 24)
                 
+                Rectangle()
+                    .fill(Color.white)
+                    .frame(height: 3)
+                    .cornerRadius(1.5)
+                    .padding(.horizontal, 24)
+                    .padding(.top, 4)
+                
                 VStack(spacing: 12) {
+                    RoundsWheelRow(title: "Rounds", rounds: $selectedRounds)
                     TimeWheelRow(title: "Initial", minutes: $selectedInitialMinutes, seconds: $selectedInitialSeconds)
                     TimeWheelRow(title: "Work", minutes: $selectedWorkMinutes, seconds: $selectedWorkSeconds)
                     TimeWheelRow(title: "Rest", minutes: $selectedRestMinutes, seconds: $selectedRestSeconds)
@@ -75,6 +90,10 @@ struct ContentView: View {
             }
             .onChange(of: selectedRestSeconds, initial: false) { _, _ in
                 syncRemaining(with: .rest)
+            }
+            .onChange(of: selectedRounds, initial: false) { _, newValue in
+                guard !isRunning else { return }
+                currentRound = min(max(1, currentRound), max(newValue, 1))
             }
         }
         .onDisappear {
@@ -100,6 +119,15 @@ struct ContentView: View {
         case .rest:
             return [Color.red.opacity(0.6), Color.red]
         }
+    }
+    
+    private var totalRounds: Int {
+        max(selectedRounds, 1)
+    }
+    
+    private var currentRoundText: String {
+        let displayRound = min(max(currentRound, 1), totalRounds)
+        return "Round \(displayRound) of \(totalRounds)"
     }
     
     private func toggleTimer() {
@@ -160,7 +188,7 @@ struct ContentView: View {
     
     private func playDoubleBeep() {
         playBeep()
-        playBeep(after: 0.1)
+        playBeep(after: 0.2)
     }
     
     private func syncRemaining(with phase: TimerPhase) {
@@ -195,29 +223,43 @@ struct ContentView: View {
     }
     
     private func advancePhaseOrFinish() {
-        if let next = currentPhase.nextPhase {
-            currentPhase = next
-            remainingSeconds = seconds(for: currentPhase)
-            if remainingSeconds > 0 {
-                playDoubleBeep()
+        switch currentPhase {
+        case .initial:
+            currentRound = 1
+            beginPhase(.work)
+        case .work:
+            beginPhase(.rest)
+        case .rest:
+            if currentRound < totalRounds {
+                currentRound += 1
+                beginPhase(.work)
+            } else {
+                finishSequence()
             }
-            if remainingSeconds == 0 {
-                advancePhaseOrFinish()
-            }
+        }
+    }
+    
+    private func beginPhase(_ phase: TimerPhase) {
+        currentPhase = phase
+        remainingSeconds = seconds(for: phase)
+        if remainingSeconds > 0 {
+            playDoubleBeep()
         } else {
-            finishSequence()
+            advancePhaseOrFinish()
         }
     }
     
     private func finishSequence() {
         pauseTimer()
         sequenceCompleted = true
+        currentRound = totalRounds
         currentPhase = .initial
         remainingSeconds = seconds(for: .initial)
     }
     
     private func prepareForNewSequence(resetCompletion: Bool = false) {
         currentPhase = .initial
+        currentRound = 1
         remainingSeconds = seconds(for: .initial)
         if resetCompletion {
             sequenceCompleted = false
@@ -227,17 +269,6 @@ struct ContentView: View {
 
 private enum TimerPhase {
     case initial, work, rest
-    
-    var nextPhase: TimerPhase? {
-        switch self {
-        case .initial:
-            return .work
-        case .work:
-            return .rest
-        case .rest:
-            return nil
-        }
-    }
 }
 
 private struct TimeWheel: View {
@@ -277,6 +308,30 @@ private struct TimeWheelRow: View {
                 .foregroundStyle(.white.opacity(0.85))
             TimeWheel(label: "min", selection: $minutes)
             TimeWheel(label: "sec", selection: $seconds)
+        }
+        .frame(height: 110)
+    }
+}
+
+private struct RoundsWheelRow: View {
+    let title: String
+    @Binding var rounds: Int
+    
+    var body: some View {
+        HStack(alignment: .center, spacing: 24) {
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.white.opacity(0.85))
+            Picker(title, selection: $rounds) {
+                ForEach(1...50, id: \.self) { value in
+                    Text("\(value)")
+                        .tag(value)
+                }
+            }
+            .pickerStyle(.wheel)
+            .labelsHidden()
+            .frame(width: 70, height: 80)
+            .clipped()
         }
         .frame(height: 110)
     }
